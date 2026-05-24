@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 import websockets
 
@@ -15,13 +15,25 @@ if not PICARTO_TOKEN:
 uri = f"wss://chat.picarto.tv/chat/token={PICARTO_TOKEN}"
 
 
+def get_log_file_name():
+    current_date = datetime.now().strftime("%Y-%m-%d")
+    return os.path.join(DATA_DIR, f"{current_date}.jsonl")
+
+
+def build_log_entry(response_json):
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "type": response_json.get("t"),
+        "user": response_json.get("n"),
+        "message": response_json.get("m"),
+        "raw": response_json,
+    }
+
+
 async def connect_and_communicate():
     os.makedirs(DATA_DIR, exist_ok=True)
 
     while True:
-        current_date = datetime.now().strftime("%Y-%m-%d")
-        file_name = os.path.join(DATA_DIR, f"{current_date}.txt")
-
         try:
             async with websockets.connect(uri) as websocket:
                 await websocket.send(json.dumps({"type": "welcomeMessage"}))
@@ -37,10 +49,14 @@ async def connect_and_communicate():
                         response_json = json.loads(response)
 
                         if response_json.get("t") == "c":
-                            with open(file_name, "a", encoding="utf-8") as file:
-                                file.write(json.dumps(response_json, ensure_ascii=False) + "\n")
+                            file_name = get_log_file_name()
+                            log_entry = build_log_entry(response_json)
 
-                            print(response_json, flush=True)
+                            with open(file_name, "a", encoding="utf-8") as file:
+                                file.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+                                file.flush()
+
+                            print(log_entry, flush=True)
 
                     except asyncio.TimeoutError:
                         await websocket.send(json.dumps({"type": "ping", "message": "__ping__"}))
